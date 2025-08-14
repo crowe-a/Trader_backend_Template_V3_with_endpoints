@@ -23,6 +23,7 @@ def run_buy(pair):
             '//*[@id="spot-layout"]/div[2]/div/div[2]/div[3]/div/span[2]'
         )))
     coin_name = coin_element.text.strip()
+    
     print("coin_name: ",coin_name)
     
     # try:
@@ -36,7 +37,7 @@ def run_buy(pair):
 
     try:
         price_element = wait.until(EC.presence_of_element_located(
-            (By.XPATH, "//div[text()='Fiyat']/following-sibling::div//input")
+            (By.XPATH, "//div[text()='Price']/following-sibling::div//input")
         ))
 
         # Burada text_to_be_present_in_element_value yerine value attribute’unun dolmasını bekleyebiliriz:

@@ -27,7 +27,7 @@ def run_sell(pair):
 
     try:
         price_element = wait.until(EC.presence_of_element_located(
-            (By.XPATH, '//*[@id="spot-layout"]/div[2]/div/div[2]/div[4]/div[1]/div/div[2]/input')
+            (By.XPATH, "//div[text()='Price']/following-sibling::div//input")
         ))
 
         # Burada text_to_be_present_in_element_value yerine value attribute’unun dolmasını bekleyebiliriz:

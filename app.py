@@ -1,4 +1,4 @@
-from flask import Flask, render_template, redirect, url_for,request,Response
+from flask import Flask, render_template, redirect, url_for,request,Response,jsonify
 import threading
 from bot import open_browser
 from backend import get_ballance,buy,sell
@@ -18,7 +18,7 @@ bot_thread = None
 
 
 
-# app.secret_key = "cok_gizli_key"
+app.secret_key = "cok_gizli_key"
 
 # Basit user database
 USERS = {"admin": "secret123"}
@@ -88,21 +88,36 @@ def panel():
 @login_required
 def start():
     global bot_thread
-    if open_browser.running:  # 
-        return render_template("start.html", message="Bot has already started .")
-    
-    bot_thread = threading.Thread(target=open_browser.run)  # 
-    bot_thread.start()
-    return render_template("start.html", message="Bot started.")
+    identifier = "myChart"  # event stream identifier
 
+    if open_browser.running:
+        # Bot zaten çalışıyorsa alive event gönder
+         
+        return render_template("start.html", message="Bot has already started.")
+
+    # Botu başlat
+    bot_thread = threading.Thread(target=open_browser.run)
+    bot_thread.start()
+
+    # Bot başlatıldı event
+    push_event(identifier, kind="alive", raw={"message": "Bot started"})
+    
+    return render_template("start.html", message="Bot started.")
 @app.route("/stop")
 @login_required
 def stop():
+    identifier = "myChart"
+
     if open_browser.running:
-        open_browser.stop()  # 
-        return render_template("stop.html", message="Bot stoped.")
-    return render_template("stop.html", message="The bot has already stoppedr.")
-from flask import jsonify
+        open_browser.stop()
+        # Bot durdu event
+        push_event(identifier, kind="dead", raw={"message": "Bot stopped"})
+        return render_template("stop.html", message="Bot stopped.")
+
+    # Bot zaten duruyorsa dead event
+    push_event(identifier, kind="dead", raw={"message": "Bot already stopped"})
+    return render_template("stop.html", message="The bot has already stopped.")
+
 
 @app.route("/get_balance")
 @login_required
@@ -128,41 +143,50 @@ def market():
 @app.route("/trade", methods=["POST"])
 @login_required
 def trade():
+    identifier = "myChart"
     try:
-        pair = request.json.get("pair")
-        action = request.json.get("action")
+        data = request.get_json(silent=True) or {}
+        pair = data.get("pair")
+        action = data.get("action")
         
         if action == "buy":
             result = buy.run_buy(pair)
         elif action == "sell":
             result = sell.run_sell(pair)
         else:
-
             return jsonify({"status": "error", "message": "Invalid action"})
+
+        # Trade event
+        push_event(identifier, kind="trade", trade=result, raw={"pair": pair, "action": action})
         return jsonify({"status": "success", "data": result})
+
     except Exception as e:
+        push_event(identifier, kind="error", raw={"message": str(e)})
         return jsonify({"status": "error", "message": str(e)})
     
 
 @app.route("/execute_trade", methods=["POST"])
 @login_required
 def execute_trade():
+    identifier = "myChart"
     try:
         pair = request.json.get("pair")
         action = request.json.get("action")
         amount = request.json.get("amount")
-        #market_data = trade_executor.search()
+
         if action == "buy":
             result = trade_executor.execute_buy(pair, amount)
-            
         elif action == "sell":
             result = trade_executor.execute_sell(pair, amount)
-            
         else:
             return jsonify({"status": "error", "message": "Invalid action"})
 
+        # Execute trade event
+        push_event(identifier, kind="trade", trade=result, raw={"pair": pair, "action": action, "amount": amount})
         return jsonify({"status": "success", "data": result})
+
     except Exception as e:
+        push_event(identifier, kind="error", raw={"message": str(e)})
         return jsonify({"status": "error", "message": str(e)})
     
     
@@ -176,14 +200,14 @@ def get_market_data():
         return jsonify({"status": "error", "message": str(e)})
 
 
-@app.route("/get_close_open", methods=["GET"])
-@login_required
-def get_close_open():
-    try:
-        market_data = trade_executor.search()
-        return jsonify({"status": "success", "market_data": market_data})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+# @app.route("/get_close_open", methods=["GET"])
+# @login_required
+# def get_close_open():
+#     try:
+#         market_data = trade_executor.search()
+#         return jsonify({"status": "success", "market_data": market_data})
+#     except Exception as e:
+#         return jsonify({"status": "error", "message": str(e)})
 
 
 
@@ -198,8 +222,12 @@ _trade_lock = threading.Lock()
 @app.route("/charts", methods=["POST"])
 def start_chart():
     data = request.get_json()
-    identifier = data.get("identifier", f"id-{random.randint(1,1000)}")
-    # Mock response:
+    #identifier = data.get("identifier", f"id-{random.randint(1,1000)}")
+    identifier = "myChart"
+    # Event gönder
+    push_event(identifier, kind="alive", raw={"message": f"Chart {identifier} started"})
+
+    # Mock response
     response = {
         "message": f"Chart {identifier} started",
         "identifier": identifier,
@@ -210,37 +238,35 @@ def start_chart():
 
 @app.route("/charts/<identifier>/status", methods=["GET"])
 def chart_status(identifier):
-    # Mock chart status
-    i=0
+    i = 0
     for i in range(3):
         try:
-            data=trade_executor.getcloseopen()
+            data = trade_executor.getcloseopen()
             if data.get("s") != "ok" or not data.get("c"):
-                print("No data could be received, possibly the interval is too short or the bar has not formed yet")
-                return None
-            
-            ts = data["t"][-1]  #  timestamp
-            nxt_ts=int(ts)+60
-            # Milisaniyeyi to second
-            nxt_ts=int(nxt_ts)/1000
-            ts_seconds = int(ts) / 1000  
+                identifier = "myChart"
+                push_event(identifier, kind="error", raw={"message": "No data received, interval may be too short"})
+                return jsonify({"error": "No data received"}), 400
 
-            # UTC time
-            dt_nxt_utc=datetime.datetime.utcfromtimestamp(nxt_ts)
+            ts = data["t"][-1]
+            nxt_ts = int(ts) + 60
+            nxt_ts = int(nxt_ts) / 1000
+            ts_seconds = int(ts) / 1000
+
+            dt_nxt_utc = datetime.datetime.utcfromtimestamp(nxt_ts)
             dt_utc = datetime.datetime.utcfromtimestamp(ts_seconds)
 
-            
-           
-
-            print("UTC:", dt_utc.strftime("%Y-%m-%d %H:%M:%S"))
+            push_event(identifier, kind="status", raw={
+                "opens_seen": data["o"][-1],
+                "closes_seen": data["c"][-1],
+                "timestamp": dt_utc.isoformat()
+            })
             break
-        except:
+        except Exception as e:
+            push_event(identifier, kind="error", raw={"message": str(e)})
             print("close and open price not found")
         time.sleep(1)
-        i+=1
-        
-    # print(data)
-    
+        i += 1
+
     response = {
         "running": True,
         "opens_seen": data["o"][-1],
@@ -256,12 +282,13 @@ def chart_status(identifier):
 
 @app.route("/charts/<identifier>/events", methods=["GET"])
 def chart_events(identifier):
-    # Mock SSE-like event data (JSON list)
     events = [
         {"kind": "open", "trade": {"id": 1, "entry_type": "long", "entry_signal": "buy", "entry_price": 2000, "entry_time": int(time.time())}},
         {"kind": "close", "trade": {"id": 1, "exit_price": 2020, "exit_time": int(time.time())}},
         {"kind": "alive", "activated_at": int(time.time()), "chart": identifier}
     ]
+    identifier = "myChart"
+    push_event(identifier, kind="info", raw={"message": "Manual events fetched from /events"})
     return jsonify(events)
 
 
@@ -270,12 +297,13 @@ def chart_closed_events(identifier):
     events = [
         {"kind": "close", "trade": {"id": 1, "exit_price": 2020, "exit_time": int(time.time())}}
     ]
+    identifier = "myChart"
+    push_event(identifier, kind="close", raw={"message": "Closed events fetched"})
     return jsonify(events)
 
 
 @app.route("/debug/executor", methods=["GET"])
 def debug_executor():
-    # Mock webhook buffer
     data = {
         "count": 2,
         "events": [
@@ -283,12 +311,15 @@ def debug_executor():
             {"kind": "alive", "activated_at": int(time.time())}
         ]
     }
+    identifier = "myChart"
+    push_event(identifier, kind="debug", raw={"message": "Executor debug data fetched"})
     return jsonify(data)
 
 
 @app.route("/charts/<identifier>", methods=["DELETE"])
 def stop_chart(identifier):
-    # Mock stop chart
+    identifier = "myChart"
+    push_event(identifier, kind="dead", raw={"message": f"Chart {identifier} stopped"})
     return jsonify({"message": f"Chart {identifier} stopped"})
 
 
@@ -303,7 +334,7 @@ def generate_event(identifier, kind, trade=None, raw=None):
         "identifier": identifier,
         "kind": kind,
         "chart": {
-            "url": f"https://www.tradingview.com/chart/{identifier}",
+            "url": f"https://partner.bydfi.com/chart/{identifier}",
             "interval": "1m"
         }
     }
@@ -341,14 +372,21 @@ def events_stream(identifier):
         last_index = 0
         while True:
             events = chart_events_buffer.get(identifier, [])
+            #print("buffer",chart_events_buffer)
+            sent_event = False  # O turda event gönderildi mi kontrolü
             while last_index < len(events):
                 ev = events[last_index]
                 yield f"data: {json.dumps(ev)}\n\n"
                 last_index += 1
+                sent_event = True
+
+            # Eğer yeni event yoksa, dinleniyor mesajı gönder
+            # if not sent_event:
+            #     yield f"data: {json.dumps({'status': 'listening', 'message': 'Event stream active, waiting for events...'})}\n\n"
+
             time.sleep(1)
+
     return Response(stream_with_context(event_stream()), mimetype="text/event-stream")
-
-
 
 # if __name__ == "__main__":
 #     app.run(debug=True,host="0.0.0.0", port=5000)

@@ -105,6 +105,11 @@
       <input type="number" id="amount" placeholder="Enter quantity" min="0" step="any">
       <button id="execute-btn">transaction</button>
     </div>
+    <!-- Bakiye göstermek için -->
+    <p>Ballance: <span id="balance">-</span></p>
+
+    <!-- Buton -->
+    <button id="getBalanceBtn">Check Ballance</button>
 
     <div class="output-section" style="margin-top:30px;">
       <h3>results (Input )</h3>
@@ -132,16 +137,77 @@
         </tr>
       </thead>
       <tbody></tbody>
+      
     </table>
+    
   </div>
+  
+    
 </div>
+
 
 <div class="output-section" style="margin-top:30px;">
   <h3>raw json output</h3>
   <pre id="result"></pre>
 </div>
+<div class="output-section" style="margin-top:30px;">
+  <h3>Live Events</h3>
+  <button id="start-events-btn">Start Event Stream</button>
+  <pre id="events-output" style="height:200px; overflow-y:auto; background:#eee; padding:10px;"></pre>
+</div>
+
 
     <script>
+      
+        document.getElementById("getBalanceBtn").addEventListener("click", function() {
+            fetch("/get_balance")
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === "success") {
+                        document.getElementById("balance").textContent = data.balance;
+                    } else {
+                        document.getElementById("balance").textContent = "Hata: " + data.message;
+                    }
+                })
+                .catch(error => {
+                    document.getElementById("balance").textContent = "Hata: " + error;
+                });
+        });
+    
+      // Event Stream button and show
+      const startEventsBtn = document.getElementById("start-events-btn");
+      const eventsOutput = document.getElementById("events-output");
+
+      let eventSource = null;
+
+      startEventsBtn.addEventListener("click", () => {
+          if(eventSource) {
+              alert("Event stream already running!");
+              return;
+          }
+
+          // identifier örnek, backend'deki identifier ile aynı olmalı
+          const chartId = "myChart"; 
+
+          eventSource = new EventSource(`/charts/${chartId}/events_stream`);
+
+          eventSource.onmessage = (e) => {
+              const data = JSON.parse(e.data);
+              const time = new Date().toLocaleTimeString();
+              eventsOutput.textContent += `[${time}] ${JSON.stringify(data, null, 2)}\n\n`;
+              eventsOutput.scrollTop = eventsOutput.scrollHeight; // otomatik scroll
+          };
+
+          eventSource.onerror = (e) => {
+              console.error("EventStream error:", e);
+              eventsOutput.textContent += "EventStream connection lost...\n";
+              eventSource.close();
+              eventSource = null;
+          };
+      });
+
+
+
         const form = document.getElementById('trade-form');
         const result = document.getElementById('result');
         const executeBtn = document.getElementById('execute-btn');
