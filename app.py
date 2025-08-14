@@ -5,13 +5,11 @@ from backend import get_ballance,buy,sell
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
-import time,datetime
+import time,datetime,random,threading,datetime,requests,json
 from backend import trade_executor
 from flask import Flask, render_template, request, redirect, url_for, session, flash
-import random
-import threading
-import jwt, datetime
 from functools import wraps
+from flask import Response, stream_with_context
 
 # from flask_socketio import SocketIO
 app = Flask(__name__)
@@ -295,6 +293,60 @@ def stop_chart(identifier):
 
 
 
+### end point fe
+# Global dictionary chart_id -> events
+chart_events_buffer = {}
+
+def generate_event(identifier, kind, trade=None, raw=None):
+    """Event payload generator, Event Payloads standardına uygun"""
+    event = {
+        "identifier": identifier,
+        "kind": kind,
+        "chart": {
+            "url": f"https://www.tradingview.com/chart/{identifier}",
+            "interval": "1m"
+        }
+    }
+    if trade:
+        event["trade"] = trade
+    if raw:
+        event["raw"] = raw
+    if kind == "alive":
+        event["activated_at"] = datetime.datetime.utcnow().isoformat()
+    if kind == "dead":
+        event["stopped_at"] = datetime.datetime.utcnow().isoformat()
+    return event
+
+def push_event(identifier, kind, trade=None, raw=None, executor_url=None):
+    """Add the created event to the buffer and send it to the webhook"""
+    event = generate_event(identifier, kind, trade, raw)
+    
+    # SSE için buffer
+    if identifier not in chart_events_buffer:
+        chart_events_buffer[identifier] = []
+    chart_events_buffer[identifier].append(event)
+    
+    # Eğer executor_url verilmişse POST yap
+    if executor_url:
+        try:
+            requests.post(executor_url, json=event)
+        except Exception as e:
+            print(f"Executor'a didint send: {e}")
+    
+    return event
+
+@app.route("/charts/<identifier>/events_stream")
+def events_stream(identifier):
+    def event_stream():
+        last_index = 0
+        while True:
+            events = chart_events_buffer.get(identifier, [])
+            while last_index < len(events):
+                ev = events[last_index]
+                yield f"data: {json.dumps(ev)}\n\n"
+                last_index += 1
+            time.sleep(1)
+    return Response(stream_with_context(event_stream()), mimetype="text/event-stream")
 
 
 
