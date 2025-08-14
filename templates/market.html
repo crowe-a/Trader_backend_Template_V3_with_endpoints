@@ -1,0 +1,245 @@
+<!-- templates/market.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Market Page</title>
+    <style>
+         body {
+    font-family: Arial;
+    padding: 20px;
+  }
+
+  /* Genel input ve label ayarları */
+  label {
+    font-weight: bold;
+    display: block;
+    margin-top: 10px;
+  }
+
+  input,
+  select {
+    width: 300px;
+    padding: 5px;
+    margin-bottom: 10px;
+  }
+
+  button {
+    padding: 10px 20px;
+    cursor: pointer;
+  }
+
+  /* Ana container: inputlar ve listeyi yan yana koy */
+  .main-container {
+    display: flex;
+    gap: 30px; /* aralarında boşluk */
+    align-items: flex-start;
+  }
+
+  /* Sol taraf form ve inputlar */
+  .input-section {
+    flex: 1 1 350px; /* küçülebilir ama minimum 350px */
+    max-width: 400px;
+  }
+
+  /* Sağ taraf coin listesi */
+  .list-section {
+    flex: 1 1 300px; /* küçülebilir, minimum 300px */
+    max-width: 350px;
+    background: #f4f4f4;
+    padding: 15px;
+    border-radius: 5px;
+    height: fit-content;
+    overflow-y: auto;
+    max-height: 500px; /* çok uzun olursa scroll çıksın */
+  }
+
+  /* Coin tablosu ayarı */
+  #coin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+
+  #coin-table th,
+  #coin-table td {
+    border: 1px solid #ccc;
+    padding: 6px 8px;
+    text-align: left;
+  }
+
+  #coin-table th {
+    background-color: #e2e2e2;
+  }
+
+        body { font-family: Arial; padding: 20px; }
+        label { font-weight: bold; display: block; margin-top: 10px; }
+        input, select { width: 300px; padding: 5px; margin-bottom: 10px; }
+        button { padding: 10px 20px; cursor: pointer; }
+        .output-section { margin-top: 30px; background: #f4f4f4; padding: 15px; }
+    </style>
+</head>
+<body>
+    <h1>{{ message }}</h1>
+
+    <!-- Backend'den veri çekme formu -->
+    <div class="main-container">
+  <div class="input-section">
+    <!-- Backend'den veri çekme formu -->
+    <form id="trade-form">
+      <label>Pair:</label>
+      <input type="text" name="pair" id="pair" placeholder="örnek: beamx_usdt" required>
+
+      <label>market transaction type:</label>
+      <select name="action" id="action">
+        <option value="buy">buy</option>
+        <option value="sell">sell</option>
+      </select>
+
+      <button type="submit">send</button>
+    </form>
+
+    <!-- Yeni miktar inputu ve işlem butonu -->
+    <div style="margin-top:20px;">
+      <label>amount:</label>
+      <input type="number" id="amount" placeholder="Enter quantity" min="0" step="any">
+      <button id="execute-btn">transaction</button>
+    </div>
+
+    <div class="output-section" style="margin-top:30px;">
+      <h3>results (Input )</h3>
+      <label>Balance:</label>
+      <input type="text" id="balance" readonly>
+
+      <label>Price:</label>
+      <input type="text" id="price" readonly>
+
+      <label>Type:</label>
+      <input type="text" id="type" readonly>
+    </div>
+  </div>
+
+  <div class="list-section output-section">
+    <h3>Coin List</h3>
+    <button id="fetch-market-btn" style="margin-bottom:10px;">Get coins</button>
+    <table id="coin-table" border="1" cellpadding="5" cellspacing="0">
+      <thead>
+        <tr>
+          <th>Coin</th>
+          <th>Quote</th>
+          <th>Price</th>
+          <th>24-hour change</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="output-section" style="margin-top:30px;">
+  <h3>raw json output</h3>
+  <pre id="result"></pre>
+</div>
+
+    <script>
+        const form = document.getElementById('trade-form');
+        const result = document.getElementById('result');
+        const executeBtn = document.getElementById('execute-btn');
+        const ftcmbtn = document.getElementById('fetch-market-btn')
+        // İlk başta "İşlem Yap" butonunu pasif yap
+        executeBtn.disabled = true;
+        ftcmbtn.disabled = true;
+        // 1) Backend'den veri çekme
+        form.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            executeBtn.disabled = true; // Form gönderirken butonu tekrar kapat (yeniden bekle)
+            ftcmbtn.disabled = true;
+            const pair = document.getElementById('pair').value;
+            const action = document.getElementById('action').value;
+
+            const response = await fetch("/trade", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ pair, action })
+            });
+
+            const data = await response.json();
+            result.textContent = JSON.stringify(data, null, 2);
+
+            if (data.status === "success" && data.data) {
+                document.getElementById('balance').value = data.data.balance;
+                document.getElementById('price').value = data.data.price;
+                document.getElementById('type').value = data.data.type;
+                executeBtn.disabled = false;  // Başarılı data geldiyse butonu aktif et
+                ftcmbtn.disabled = false;
+
+            } else {
+                document.getElementById('balance').value = '';
+                document.getElementById('price').value = '';
+                document.getElementById('type').value = '';
+                executeBtn.disabled = true;  // Hata veya data yoksa buton pasif kalsın
+                ftcmbtn.disabled = true;
+
+            }
+        });
+
+
+        // 2) İşlem yapma
+        executeBtn.addEventListener('click', async function () {
+        const pair = document.getElementById('pair').value;
+        const action = document.getElementById('action').value;
+        const amount = document.getElementById('amount').value;
+
+        if (!amount || amount <= 0) {
+            alert("Please enter a valid amount!");
+            return;
+        }
+
+        const response = await fetch("/execute_trade", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pair, action, amount })
+        });
+
+        const data = await response.json();
+
+        if(data.status === "success"){
+            alert("Transaction result: Successful!");
+            console.log("Market data:", data.market_data);
+            // İstersen market_data'yı sayfada gösterebilirsin
+        } else {
+            alert("error: ${data.message || 'unknown'}");
+        }
+    });
+
+    //liste
+//     
+// Verileri Getir butonu
+document.getElementById("fetch-market-btn").addEventListener("click", async function () {
+    const response = await fetch("/get_market_data");
+    const data = await response.json();
+
+    if (data.status === "success") {
+        const marketData = data.market_data || [];
+        const tbody = document.querySelector("#coin-table tbody");
+        tbody.innerHTML = ""; // önce temizle
+
+        marketData.forEach(item => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+                <td>${item.coin}</td>
+                <td>${item.quote}</td>
+                <td>${item.price}</td>
+                <td>${item.change}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } else {
+        alert("error: " + (data.message || "unknown"));
+    }
+});
+
+    </script>
+</body>
+</html> 
