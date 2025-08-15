@@ -16,7 +16,8 @@ app = Flask(__name__)
 # socketio = SocketIO(app, cors_allowed_origins="*")
 bot_thread = None
 
-
+##------------------------------------------------------***login form FE to backend functıons bein***------------------------------------------------------
+    
 
 app.secret_key = "cok_gizli_key"
 
@@ -77,13 +78,121 @@ def login_api():
 def panel():
     return render_template("panel.html", username=session['username'])
 # Dummy endpoints
+##------------------------------------------------------***login form FE to backend functıons end***------------------------------------------------------
+    
 
 
+##------------------------------------------------------***webhook to backend functıons begin***------------------------------------------------------
+    
 
-# @app.route("/")
-# def index():
-#     return render_template("login.html")
+@app.route("/start_stop", methods=["POST"])# start stop webhook
+def start_stop():
+    data = request.get_json() or {}
+    action = data.get("action")
 
+    if action == "start":
+        global bot_thread
+        identifier = "myChart"
+        if open_browser.running:
+        # Bot zaten çalışıyorsa alive event gönder
+            return render_template("start.html", message="Bot has already started.") # Direkt start fonksiyonunu çağırıyoruz
+       
+        # Botu başlat
+        bot_thread = threading.Thread(target=open_browser.run)
+        bot_thread.start()
+        # Bot başlatıldı event
+        push_event(identifier, kind="alive", raw={"message": "Bot started"})
+        return jsonify({"status": "success"})
+
+    elif action == "stop":
+        identifier = "myChart"
+
+        if open_browser.running:
+            open_browser.stop()
+            # Bot durdu event
+            push_event(identifier, kind="dead", raw={"message": "Bot stopped"})
+            return jsonify({"status": "failed"})
+
+        push_event(identifier, kind="dead", raw={"message": "Bot already stopped"})
+        return jsonify({"status": "success"})  # Direkt stop fonksiyonunu çağırıyoruz
+        
+    else:
+        return jsonify({"status": "error", "message": "Invalid action"}), 400
+    
+
+
+@app.route("/market", methods=["POST"])
+def market1():
+    identifier = "myChart"
+    data = request.get_json() or {}
+    print("json from webhook",data)
+    action = data.get("action")  #  buy, sell,get_ballance,get_price,get_close_open vb.
+    symbol = data.get("symbol")  # ETH_USDT gibi
+    amount = data.get("amount")  # 1000 gibi
+
+    if action == "get_ballance":
+        try:
+            balance = get_ballance.get_bl()  # Backend 
+            return jsonify({"status": "success", "balance": balance})
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)})
+
+    
+
+    elif action in ["buy", "sell"]:
+        if not symbol or not amount:
+            return jsonify({"status": "error", "message": "symbol ve amount gerekli"}), 400
+
+        # Burada trade işlemini başlat (örnek log)
+        print(f"Market order: {action.upper()} {symbol} amount={amount}")
+
+        # Event push
+        push_event("myChart", kind=action, raw={
+            "symbol": symbol,
+            "amount": amount,
+            "message": f"{symbol} {action} executed"
+        })
+        
+        try:
+            # data = request.get_json(silent=True) or {}
+            # pair = data.get("pair")
+            # action = data.get("action")
+            
+            if action == "buy":
+                result = buy.run_buy(symbol)
+                time.sleep(3)
+                result = trade_executor.execute_buy(symbol, amount)
+            elif action == "sell":
+                result = sell.run_sell(symbol)
+                time.sleep(3)
+                result = trade_executor.execute_sell(symbol, amount)
+            else:
+                return jsonify({"status": "error", "message": "Invalid action"})
+
+            # Trade event
+            push_event(identifier, kind="trade", trade=result, raw={"pair": symbol, "action": action,"amount":amount})
+            return jsonify({"status": "success", "data": result})
+
+        except Exception as e:
+            push_event(identifier, kind="error", raw={"message": str(e)})
+            return jsonify({"status": "error", "message": str(e)})
+        
+    elif action == "get_close_open":
+        try:
+            market_data = trade_executor.getcloseopen(symbol)
+            push_event(identifier, kind="get_close_open", trade=market_data, raw={"symbol": symbol, "action": action})
+            return jsonify({"status": "success", "market_data": market_data})
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)})
+
+    else:
+        push_event(identifier, kind="error", trade=market_data, raw={"message": "failed"})
+        return jsonify({"status": "error", "message": "failed"}), 400
+##------------------------------------------------------***webhook to backend functıons end***------------------------------------------------------
+    
+
+##------------------------------------------------------***fe to backend functıons start***------------------------------------------------------
+    
 @app.route("/start")
 @login_required
 def start():
@@ -199,17 +308,7 @@ def get_market_data():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
-
-# @app.route("/get_close_open", methods=["GET"])
-# @login_required
-# def get_close_open():
-#     try:
-#         market_data = trade_executor.search()
-#         return jsonify({"status": "success", "market_data": market_data})
-#     except Exception as e:
-#         return jsonify({"status": "error", "message": str(e)})
-
-
+##------------------------------------------------------***fe to backend functıons end ***------------------------------------------------------
 
 
 # --- Mock data ---
@@ -217,6 +316,7 @@ def get_market_data():
 _trade_history = []
 _trade_lock = threading.Lock()
 
+##------------------------------------------------------**** signaler endpoints begin****------------------------------------------------------##
 # --- Endpoints ---
 
 @app.route("/charts", methods=["POST"])
@@ -322,9 +422,9 @@ def stop_chart(identifier):
     push_event(identifier, kind="dead", raw={"message": f"Chart {identifier} stopped"})
     return jsonify({"message": f"Chart {identifier} stopped"})
 
+##------------------------------------------------------**** signaler endpoints end****------------------------------------------------------##
 
-
-### end point fe
+### ------------------------------------------------------FE auxiliary functions  begin------------------------------------------------------
 # Global dictionary chart_id -> events
 chart_events_buffer = {}
 
@@ -387,6 +487,11 @@ def events_stream(identifier):
             time.sleep(1)
 
     return Response(stream_with_context(event_stream()), mimetype="text/event-stream")
+
+### ------------------------------------------------------FE auxiliary functions  end------------------------------------------------------
+
+
+
 
 # if __name__ == "__main__":
 #     app.run(debug=True,host="0.0.0.0", port=5000)

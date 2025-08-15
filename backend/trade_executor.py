@@ -99,11 +99,14 @@ def execute_sell(pair, amount):
         "amount": amount
     }
 
-def search():
-    driver = open_browser.driver
-    wait = WebDriverWait(driver, 15)
+def search(symbol):
+    # driver = open_browser.driver
+    # wait = WebDriverWait(driver, 15)
 
-    
+    driver = open_browser.driver
+    driver.get(f"https://www.bydfi.com/en/spot/{symbol}")
+
+    wait = WebDriverWait(driver, 15)
 
     #  butonuna click
     buybutton = wait.until(EC.element_to_be_clickable((By.XPATH,
@@ -136,24 +139,25 @@ def search():
     return coin_list
     
 
-def getcloseopen():
+def getcloseopen(symbol):
     try:
         
         driver = open_browser.driver
         #wait = WebDriverWait(driver, 15)
         
-       
+        
         # # target URL eth_usdt is given as an example
-        url = "https://www.bydfi.com/tr/spot/eth_usdt"
+        url = f"https://www.bydfi.com/en/spot/{symbol}"
         driver.get(url)
         time.sleep(10)
         seconds_back=60
         now = int(time.time())          # integer timestamp
         from_ts = now - seconds_back
-
+        upper_symbol=symbol.upper()
+        print("upper_symbol :",upper_symbol)
         url = "https://www.bydfi.com/api/tv/tradingView/history"
         params = {
-            "symbol": "ETH_USDT",
+            "symbol": str(upper_symbol),
             "resolution": "1",
             "from": from_ts,
             "to": now
